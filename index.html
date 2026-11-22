@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>写真パック</title>
+<style>
+*{box-sizing:border-box}
+[hidden]{display:none !important}
+body{margin:0;font-family:"Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif;background:#eef1f6;color:#1d2433;font-size:16px;line-height:1.6}
+.wrap{max-width:960px;margin:0 auto;padding:14px 14px 60px}
+h1{font-size:20px;margin:6px 0 4px}
+.sub{color:#4a5468;font-size:14px;margin:0 0 12px}
+.card{background:#fff;border-radius:12px;padding:14px 16px;margin:12px 0;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.card h2{font-size:16px;margin:0 0 8px}
+button,.btn{font:inherit;border:0;border-radius:10px;padding:12px 18px;min-height:48px;background:#2a45c2;color:#fff;cursor:pointer;display:inline-block}
+button.gray{background:#6b7590}
+button.green{background:#1f7a3a}
+button.small{min-height:40px;padding:8px 12px;font-size:14px}
+button:disabled{opacity:.45;cursor:not-allowed}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:8px 0}
+select{font:inherit;padding:10px 12px;min-height:44px;border-radius:8px;border:1px solid #9aa3b8;background:#fff}
+label.opt{display:flex;flex-direction:column;font-size:13px;color:#4a5468;gap:2px}
+#prog{font-size:14px;color:#1d2433;min-height:22px}
+.sum{font-weight:bold}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:10px}
+.it{position:relative;background:#dfe4ee;border-radius:8px;overflow:hidden;aspect-ratio:1.34}
+.it img{width:100%;height:100%;object-fit:cover;display:block}
+.it .no{position:absolute;left:4px;top:4px;background:rgba(0,0,0,.65);color:#fff;font-size:12px;border-radius:4px;padding:1px 6px}
+.it .x{position:absolute;right:4px;top:4px;width:34px;height:34px;min-height:0;padding:0;border-radius:50%;background:rgba(0,0,0,.65);font-size:18px;line-height:34px}
+.part{display:flex;flex-wrap:wrap;gap:8px;align-items:center;border-top:1px solid #e1e5ee;padding:10px 0}
+.part .nm{flex:1;min-width:200px}
+.note{background:#eef1fb;border-radius:8px;padding:10px 12px;font-size:14px;line-height:1.8}
+/* 閲覧（PC側） */
+.vcard{background:#fff;border-radius:10px;padding:8px;box-shadow:0 1px 3px rgba(0,0,0,.1)}
+.vcard .im{aspect-ratio:1.34;background:#dfe4ee;border-radius:6px;overflow:hidden;cursor:zoom-in}
+.vcard img{width:100%;height:100%;object-fit:cover;display:block}
+.vcard .cap{font-size:12px;color:#4a5468;word-break:break-all;margin:6px 0 4px}
+.vcard .bt{display:flex;gap:8px;align-items:center}
+.vcard label{font-size:13px;display:flex;align-items:center;gap:4px;margin-left:auto}
+.vgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-top:10px}
+#lb{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:50;display:flex;align-items:center;justify-content:center;padding:20px}
+#lb img{max-width:100%;max-height:100%;object-fit:contain}
+#lb .cl{position:absolute;right:14px;top:14px}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+<div id="lb" hidden><button class="cl gray" id="lbClose" type="button">閉じる</button><img id="lbImg" alt=""></div>
+<script type="application/json" id="packData"></script>
+<script>
+(function(){
+  /* このファイル自身（空の状態）を、写真パックの作成に使う */
+  var SRC="<!doctype html>\n"+document.documentElement.outerHTML;
+  var app=document.getElementById("app");
+  function $(id){return document.getElementById(id)}
+  function pad(n){return ("0"+n).slice(-2)}
+  function ymd(t){var d=new Date(t);return d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())}
+  function ymdSlash(t){var d=new Date(t);return d.getFullYear()+"/"+pad(d.getMonth()+1)+"/"+pad(d.getDate())+" "+pad(d.getHours())+":"+pad(d.getMinutes())}
+  function mb(n){return (n/1048576).toFixed(1)}
+  function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+  function bytesOf(d){var b=atob(d.slice(d.indexOf(",")+1)),u=new Uint8Array(b.length);for(var i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u}
+  function saveBlob(blob,name){
+    var a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();a.remove();
+    setTimeout(function(){URL.revokeObjectURL(a.href)},60000);
+  }
+  function safeName(n,i){
+    var base=String(n||"").replace(/\.[^.]*$/,"").replace(/[\\\/:*?"<>|]/g,"_").replace(/^\s+|\s+$/g,"");
+    return (base||("写真"+pad(i+1)))+".jpg";
+  }
+  function names(list){ /* 同じ名前が重なったら、番号を付けて区別する */
+    var seen={},out=[];
+    list.forEach(function(p,i){var n=safeName(p.n,i);if(seen[n]){n=n.replace(/\.jpg$/,"")+"_"+(i+1)+".jpg"}seen[n]=1;out.push(n)});
+    return out;
+  }
+
+  /* ---------- ZIP（無圧縮・外部部品なし） ---------- */
+  var CT=null;
+  function crc32(u){
+    if(!CT){CT=[];for(var n=0;n<256;n++){var c=n;for(var k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;CT[n]=c>>>0}}
+    var c2=0xFFFFFFFF;for(var i=0;i<u.length;i++)c2=CT[(c2^u[i])&255]^(c2>>>8);return (c2^0xFFFFFFFF)>>>0;
+  }
+  function makeZip(files){ /* files: [{name,bytes,t}] */
+    var enc=new TextEncoder(),parts=[],cd=[],off=0;
+    files.forEach(function(f){
+      var nb=enc.encode(f.name),crc=crc32(f.bytes),d=new Date(f.t||Date.now());
+      var tm=(d.getHours()<<11)|(d.getMinutes()<<5)|(d.getSeconds()>>1),dt=(Math.max(0,d.getFullYear()-1980)<<9)|((d.getMonth()+1)<<5)|d.getDate();
+      var h=new DataView(new ArrayBuffer(30));
+      h.setUint32(0,0x04034b50,true);h.setUint16(4,20,true);h.setUint16(6,0x0800,true);h.setUint16(8,0,true);h.setUint16(10,tm,true);h.setUint16(12,dt,true);
+      h.setUint32(14,crc,true);h.setUint32(18,f.bytes.length,true);h.setUint32(22,f.bytes.length,true);h.setUint16(26,nb.length,true);h.setUint16(28,0,true);
+      parts.push(new Uint8Array(h.buffer),nb,f.bytes);
+      var c=new DataView(new ArrayBuffer(46));
+      c.setUint32(0,0x02014b50,true);c.setUint16(4,20,true);c.setUint16(6,20,true);c.setUint16(8,0x0800,true);c.setUint16(10,0,true);c.setUint16(12,tm,true);c.setUint16(14,dt,true);
+      c.setUint32(16,crc,true);c.setUint32(20,f.bytes.length,true);c.setUint32(24,f.bytes.length,true);c.setUint16(28,nb.length,true);
+      c.setUint16(30,0,true);c.setUint16(32,0,true);c.setUint16(34,0,true);c.setUint16(36,0,true);c.setUint32(38,0,true);c.setUint32(42,off,true);
+      cd.push(new Uint8Array(c.buffer),nb);
+      off+=30+nb.length+f.bytes.length;
+    });
+    var cdSize=0;cd.forEach(function(x){cdSize+=x.length});
+    var e=new DataView(new ArrayBuffer(22));
+    e.setUint32(0,0x06054b50,true);e.setUint16(4,0,true);e.setUint16(6,0,true);e.setUint16(8,files.length,true);e.setUint16(10,files.length,true);e.setUint32(12,cdSize,true);e.setUint32(16,off,true);e.setUint16(20,0,true);
+    return new Blob(parts.concat(cd,[new Uint8Array(e.buffer)]),{type:"application/zip"});
+  }
+
+  var raw=document.getElementById("packData").textContent.replace(/^\s+|\s+$/g,"");
+  if(raw){try{viewer(JSON.parse(raw));return}catch(e){}}
+  creator();
+
+  /* ============ 作る画面（iPad側） ============ */
+  function creator(){
+    var items=[],keys={},importing=false,SIZES={s:[1000,0.75,"小さめ"],m:[1300,0.8,"ふつう"],l:[2000,0.85,"大きめ"]};
+    app.innerHTML='<h1>📷 写真パック（iPad → 会社のPC）</h1>'+
+      '<p class="sub">iPadの写真をまとめて1つのHTMLファイルにします。いつものようにメールで送り、PCで開くと、写真を1枚ずつ保存できます。</p>'+
+      '<div class="card"><h2>① 写真を選ぶ</h2><div class="row"><button type="button" id="pick">📥 写真を選ぶ（まとめて選べます）</button>'+
+      '<label class="opt">写真の大きさ<select id="sz"><option value="s">小さめ（軽い）</option><option value="m" selected>ふつう</option><option value="l">大きめ（きれい・重い）</option></select></label></div>'+
+      '<input type="file" id="file" accept="image/*" multiple hidden><div id="prog"></div><div class="row"><span class="sum" id="sum"></span><button type="button" class="gray small" id="clear" hidden>全部はずす</button></div><div class="grid" id="grid"></div></div>'+
+      '<div class="card"><h2>② 写真パックを保存</h2><div class="row"><label class="opt">1ファイルの上限<select id="lim"><option value="5">5MB</option><option value="10" selected>10MB</option><option value="15">15MB</option><option value="20">20MB</option></select></label>'+
+      '<span style="font-size:13px;color:#4a5468">メールに付けると約1.3倍になります。会社のメールの上限に合わせて選んでください。上限を超えるときは、自動で複数のファイルに分けます。</span></div>'+
+      '<div id="parts"></div></div>'+
+      '<div class="note">保存したHTMLを、いつものようにメールに添付してPCへ送ってください。PCで開くと写真の一覧が出て、「保存」で1枚ずつ（またはまとめて）保存できます。</div>';
+    var fileIn=$("file");
+    $("pick").onclick=function(){if(!importing)fileIn.click()};
+    $("sz").onchange=function(){note("大きさの変更は、これから選ぶ写真に効きます。")};
+    function note(t){$("prog").textContent=t}
+    function total(){var s=0;items.forEach(function(x){s+=x.d.length});return s}
+    function refresh(){
+      $("sum").textContent=items.length?(items.length+"枚・約"+mb(total()*0.75)+"MB（写真のみ）"):"まだ写真がありません";
+      $("clear").hidden=!items.length;
+      var g=$("grid");g.innerHTML="";var fr=document.createDocumentFragment();
+      items.forEach(function(x,i){
+        var d=document.createElement("div");d.className="it";d.innerHTML='<img alt="" src="'+x.th+'"><span class="no">'+(i+1)+'</span>';
+        var b=document.createElement("button");b.type="button";b.className="x";b.textContent="×";b.setAttribute("aria-label","この写真をはずす");
+        b.onclick=function(){items.splice(i,1);delete keys[x.k];refresh();renderParts()};d.appendChild(b);fr.appendChild(d);
+      });
+      g.appendChild(fr);renderParts();
+    }
+    $("clear").onclick=function(){if(!confirm("選んだ写真をすべてはずします（iPadの写真は消えません）。よろしいですか？"))return;items=[];keys={};refresh()};
+    function shrink(file,mx,q,cb){
+      var url=URL.createObjectURL(file),im=new Image();
+      im.onload=function(){
+        function mk(max,qq){var r=Math.min(1,max/Math.max(im.width,im.height)),c=document.createElement("canvas");c.width=Math.max(1,Math.round(im.width*r));c.height=Math.max(1,Math.round(im.height*r));c.getContext("2d").drawImage(im,0,0,c.width,c.height);return c.toDataURL("image/jpeg",qq)}
+        var o=null;try{o={d:mk(mx,q),th:mk(220,0.7)}}catch(e){}
+        URL.revokeObjectURL(url);cb(o);
+      };
+      im.onerror=function(){URL.revokeObjectURL(url);cb(null)};
+      im.src=url;
+    }
+    fileIn.addEventListener("change",function(){
+      var files=[].slice.call(fileIn.files||[]).filter(function(f){return /^image\//.test(f.type)||/\.(heic|heif|jpe?g|png)$/i.test(f.name)});fileIn.value="";
+      if(!files.length)return;
+      var S=SIZES[$("sz").value],i=0,added=0,dup=0,bad=0;importing=true;$("pick").disabled=true;
+      (function next(){
+        if(i>=files.length){importing=false;$("pick").disabled=false;note("追加しました："+added+"枚"+(dup?"（同じ写真"+dup+"枚は追加せず）":"")+(bad?"・読めなかった"+bad+"枚":""));refresh();return}
+        var f=files[i++];note("読み込み中… "+i+" / "+files.length);
+        var k=f.name+"|"+f.size+"|"+f.lastModified;
+        if(keys[k]){dup++;setTimeout(next,0);return}
+        shrink(f,S[0],S[1],function(o){
+          if(!o)bad++;else{keys[k]=1;items.push({k:k,n:f.name,t:f.lastModified||Date.now(),d:o.d,th:o.th});added++}
+          if(added%10===0)refresh();
+          setTimeout(next,0);
+        });
+      })();
+    });
+    $("lim").onchange=renderParts;
+    function groups(){
+      var lim=+$("lim").value*1048576,g=[],cur=[],sz=0;
+      items.forEach(function(x){if(cur.length&&sz+x.d.length>lim){g.push(cur);cur=[];sz=0}cur.push(x);sz+=x.d.length});
+      if(cur.length)g.push(cur);return g;
+    }
+    function html(group,idx,n){
+      var data={created:Date.now(),part:idx+1,parts:n,photos:group.map(function(x){return {n:x.n,t:x.t,d:x.d}})};
+      var json=JSON.stringify(data).replace(/</g,"\\u003c");
+      return SRC.replace(/<script type="application\/json" id="packData">[\s\S]*?<\/script>/,function(){return '<script type="application/json" id="packData">'+json+'<\/script>'});
+    }
+    function renderParts(){
+      var box=$("parts");box.innerHTML="";
+      if(!items.length){box.innerHTML='<div class="sub">写真を選ぶと、ここに保存ボタンが出ます。</div>';return}
+      var gs=groups(),stamp=ymd(Date.now());
+      gs.forEach(function(g,i){
+        var s=0;g.forEach(function(x){s+=x.d.length});
+        var fname="写真パック_"+stamp+(gs.length>1?"_"+(i+1)+"of"+gs.length:"")+".html";
+        var r=document.createElement("div");r.className="part";
+        r.innerHTML='<div class="nm"><b>'+esc(fname)+'</b><br><span style="font-size:13px;color:#4a5468">'+g.length+'枚・約'+mb(s+15000)+'MB</span></div>';
+        var b=document.createElement("button");b.type="button";b.className="green";b.textContent="💾 保存";
+        b.onclick=function(){b.disabled=true;b.textContent="作成中…";setTimeout(function(){
+          try{saveBlob(new Blob([html(g,i,gs.length)],{type:"text/html"}),fname);b.textContent="✔ 保存しました（もう一度）"}catch(e){b.textContent="保存できませんでした（枚数を減らして再度）"}
+          b.disabled=false},60)};
+        r.appendChild(b);
+        try{
+          var probe=new File(["x"],"a.html",{type:"text/html"});
+          if(navigator.canShare&&navigator.canShare({files:[probe]})){
+            var sb=document.createElement("button");sb.type="button";sb.className="small";sb.textContent="📤 共有（メール等）";
+            sb.onclick=function(){
+              var f=new File([html(g,i,gs.length)],fname,{type:"text/html"});
+              navigator.share({files:[f],title:fname}).catch(function(){});
+            };r.appendChild(sb);
+          }
+        }catch(e){}
+        box.appendChild(r);
+      });
+    }
+    refresh();
+  }
+
+  /* ============ 見る画面（PC側） ============ */
+  function viewer(pk){
+    var ps=pk.photos||[],nm=names(ps),sel={};
+    app.innerHTML='<h1>📷 写真パック（'+ps.length+'枚'+(pk.parts>1?'・'+pk.part+'/'+pk.parts+'つ目':'')+'）</h1>'+
+      '<p class="sub">'+ymdSlash(pk.created)+' に作成。「保存」を押すと、その写真が1枚ずつ保存されます（保存先はブラウザの設定の場所です）。</p>'+
+      '<div class="card"><div class="row"><button type="button" id="zipAll" class="green">全部をまとめて保存（ZIP）</button><button type="button" id="zipSel" class="gray" disabled>選んだ写真だけまとめて保存（ZIP）</button>'+
+      '<button type="button" id="selAll" class="gray small">全部を選ぶ</button><button type="button" id="selNone" class="gray small">選びなおす</button><span id="vs" class="sum"></span></div>'+
+      '<div class="sub" style="margin:4px 0 0">写真をクリックすると大きく見られます。</div><div class="vgrid" id="vg"></div></div>';
+    var vg=$("vg"),fr=document.createDocumentFragment(),cbs=[];
+    ps.forEach(function(p,i){
+      var c=document.createElement("div");c.className="vcard";
+      c.innerHTML='<div class="im"><img alt="'+esc(nm[i])+'" src="'+p.d+'"></div><div class="cap">'+(i+1)+'. '+esc(nm[i])+(p.t?'<br>'+ymdSlash(p.t):'')+'</div>';
+      var bt=document.createElement("div");bt.className="bt";
+      var b=document.createElement("button");b.type="button";b.className="small";b.textContent="💾 保存";
+      b.onclick=function(){saveBlob(new Blob([bytesOf(p.d)],{type:"image/jpeg"}),nm[i])};
+      var lab=document.createElement("label");var cb=document.createElement("input");cb.type="checkbox";cb.onchange=function(){sel[i]=cb.checked;upd()};lab.appendChild(cb);lab.appendChild(document.createTextNode("選ぶ"));
+      bt.appendChild(b);bt.appendChild(lab);c.appendChild(bt);cbs.push(cb);
+      c.querySelector(".im").onclick=function(){$("lbImg").src=p.d;$("lb").hidden=false};
+      fr.appendChild(c);
+    });
+    vg.appendChild(fr);
+    $("lbClose").onclick=function(){$("lb").hidden=true};$("lb").onclick=function(e){if(e.target===$("lb"))$("lb").hidden=true};
+    function upd(){var n=0;for(var k in sel)if(sel[k])n++;$("zipSel").disabled=!n;$("vs").textContent=n?n+"枚を選択中":""}
+    $("selAll").onclick=function(){cbs.forEach(function(c,i){c.checked=true;sel[i]=true});upd()};
+    $("selNone").onclick=function(){cbs.forEach(function(c,i){c.checked=false;sel[i]=false});upd()};
+    function zip(idx,label){
+      var files=idx.map(function(i){return {name:nm[i],bytes:bytesOf(ps[i].d),t:ps[i].t}});
+      saveBlob(makeZip(files),"写真パック_"+ymd(pk.created)+(pk.parts>1?"_"+pk.part+"of"+pk.parts:"")+label+".zip");
+    }
+    $("zipAll").onclick=function(){zip(ps.map(function(_,i){return i}),"")};
+    $("zipSel").onclick=function(){var a=[];ps.forEach(function(_,i){if(sel[i])a.push(i)});zip(a,"_選択")};
+    upd();
+  }
+})();
+</script>
+</body>
+</html>
